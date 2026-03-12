@@ -1,0 +1,14 @@
+{
+  "name": "football-live",
+  "version": "0.1.0",
+  "description": "Football live results - local dev server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^4.19.2"
+  }
+}
