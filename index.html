@@ -110,6 +110,34 @@ header{display:flex;align-items:center;justify-content:space-between;padding:20p
 /* NO RESULTS */
 .no-results{display:none;text-align:center;padding:48px 20px;font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:1px}
 
+/* FILTER BAR */
+.filter-bar{display:flex;gap:1px;margin-bottom:20px}
+.fb-btn{
+  flex:1;padding:9px 4px;font-family:var(--mono);font-size:9px;letter-spacing:1.5px;
+  text-transform:uppercase;background:var(--white);border:1px solid var(--border);
+  color:var(--muted);cursor:pointer;transition:all .12s;text-align:center;
+}
+.fb-btn:hover{border-color:var(--black);color:var(--black)}
+.fb-btn.active{background:var(--black);border-color:var(--black);color:var(--white)}
+.fb-btn.active.live{background:var(--live);border-color:var(--live)}
+.fb-btn.active.ht{background:var(--warn);border-color:var(--warn)}
+.fb-btn.active.agenda{background:var(--mid);border-color:var(--mid)}
+
+/* LOAD MORE */
+.load-more-btn{
+  width:100%;margin-top:1px;padding:12px;
+  font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  background:var(--white);border:1px solid var(--border);color:var(--muted);
+  cursor:pointer;transition:all .12s;
+}
+.load-more-btn:hover{border-color:var(--black);color:var(--black)}
+.load-more-chips{
+  font-family:var(--mono);font-size:9px;letter-spacing:1px;
+  background:none;border:1px solid var(--border);padding:3px 8px;
+  color:var(--muted);cursor:pointer;transition:all .1s;
+}
+.load-more-chips:hover{border-color:var(--black);color:var(--black)}
+
 /* FOOTER */
 footer{margin-top:48px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;flex-wrap:wrap;gap:6px}
 
@@ -138,6 +166,11 @@ footer{margin-top:48px;padding-top:14px;border-top:1px solid var(--border);displ
   </div>
   <div class="chips" id="chips"></div>
 
+  <div class="filter-bar">
+    <button class="fb-btn live"   data-f="live"   onclick="setFilter('live')"  >⚽ ao vivo</button>
+    <button class="fb-btn ht"     data-f="ht"     onclick="setFilter('ht')"    >⏸ intervalo</button>
+    <button class="fb-btn agenda" data-f="agenda" onclick="setFilter('agenda')">📅 em agenda</button>
+  </div>
   <div class="slabel" id="lbl-feat" style="display:none">destaque</div>
   <div id="featured"></div>
 
@@ -160,6 +193,26 @@ let query    = '';
 let matches  = [];
 let badges   = {};
 let appStatus = 'polling';
+
+const PAGE = 50;
+let visibleMatches = PAGE;
+let visibleChips   = PAGE;
+let statusFilter   = '';
+
+const FILTER_STATUSES = {
+  live:   ['1h','2h','et','pen'],
+  ht:     ['ht'],
+  agenda: ['scheduled','soon'],
+};
+
+function setFilter(val) {
+  statusFilter = statusFilter === val ? '' : val;
+  visibleMatches = PAGE;
+  document.querySelectorAll('.fb-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.f === statusFilter)
+  );
+  render();
+}
 
 // ── STATUS MESSAGES ─────────────────────────────────────────────────────
 const STATUS_MSG = {
@@ -190,6 +243,8 @@ async function fetchMatches() {
     updateStatusBar(d);
     if (d.matches?.length) {
       matches = d.matches;
+      visibleMatches = PAGE;
+      visibleChips   = PAGE;
       if (!pinnedId) pinnedId = [...matches].sort((a,b)=>b.priority-a.priority)[0]?.id;
       buildChips();
       await loadBadges();
@@ -284,13 +339,19 @@ function isLive(m) { return ['1h','2h','et','pen'].includes(m.status); }
 // ── RENDER ────────────────────────────────────────────────────────────────
 function render() {
   const q = query.toLowerCase().trim();
-  const filtered = q
+  let filtered = q
     ? matches.filter(m =>
         m.home.toLowerCase().includes(q) ||
         m.away.toLowerCase().includes(q) ||
         (m.tags||[]).some(t=>t.toLowerCase().includes(q)) ||
         (m.competition||'').toLowerCase().includes(q))
     : matches;
+
+  // aplica filtro de status se ativo
+  if (statusFilter && FILTER_STATUSES[statusFilter]) {
+    const allowed = FILTER_STATUSES[statusFilter];
+    filtered = filtered.filter(m => allowed.includes(m.status));
+  }
 
   let feat = filtered.find(m=>m.id===pinnedId)
           ?? [...filtered].sort((a,b)=>b.priority-a.priority)[0];
@@ -404,13 +465,15 @@ function renderFeat(m, el) {
   el.appendChild(card);
 }
 
-function renderList(matches, el) {
+function renderList(matchArr, el) {
   el.innerHTML = '';
-  const sorted = [...matches].sort((a,b) => {
+  const sorted = [...matchArr].sort((a,b) => {
     const al=isLive(a)?1:0, bl=isLive(b)?1:0;
     return al!==bl ? bl-al : b.priority-a.priority;
   });
-  sorted.forEach(m => {
+
+  const page = sorted.slice(0, visibleMatches);
+  page.forEach(m => {
     const row = document.createElement('div');
     row.className = 'mrow'+(isLive(m)?' is-live':'');
     row.onclick = () => { pinnedId=m.id; render(); };
@@ -434,24 +497,49 @@ function renderList(matches, el) {
     row.append(home, sc, away, st);
     el.appendChild(row);
   });
+
+  if (sorted.length > visibleMatches) {
+    const remaining = sorted.length - visibleMatches;
+    const btn = document.createElement('button');
+    btn.className = 'load-more-btn';
+    btn.textContent = `carregar mais ${Math.min(PAGE, remaining)} partidas (${remaining} restantes)`;
+    btn.onclick = () => { visibleMatches += PAGE; renderList(matchArr, el); };
+    el.appendChild(btn);
+  }
 }
 
 // ── CHIPS ────────────────────────────────────────────────────────────────
 function buildChips() {
   const tags = [...new Set(matches.flatMap(m=>m.tags||[]))];
   const wrap = document.getElementById('chips');
-  const existing = new Set([...wrap.querySelectorAll('.chip')].map(c=>c.dataset.tag));
-  tags.filter(t=>!existing.has(t)).forEach(t => {
+  wrap.innerHTML = '';
+
+  const toShow = tags.slice(0, visibleChips);
+  toShow.forEach(t => {
     const c=document.createElement('span'); c.className='chip'; c.textContent=t; c.dataset.tag=t;
     c.onclick=()=>setQuery(c.classList.contains('active')?'':t);
     wrap.appendChild(c);
   });
+
+  if (tags.length > visibleChips) {
+    const btn = document.createElement('button');
+    btn.className = 'load-more-chips';
+    btn.textContent = `+${tags.length - visibleChips} tags`;
+    btn.onclick = () => { visibleChips += PAGE; buildChips(); };
+    wrap.appendChild(btn);
+  }
+
+  // re-aplica active
+  document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c.dataset.tag===query));
 }
 
 function setQuery(val) {
   query = val;
+  visibleMatches = PAGE;
+  visibleChips   = PAGE;
   document.getElementById('search').value = val;
   document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c.dataset.tag===val));
+  buildChips();
   render();
 }
 
@@ -464,7 +552,10 @@ setInterval(tick,1000); tick();
 
 document.getElementById('search').addEventListener('input', e => {
   query = e.target.value;
+  visibleMatches = PAGE;
+  visibleChips   = PAGE;
   document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c.dataset.tag===query));
+  buildChips();
   render();
 });
 
